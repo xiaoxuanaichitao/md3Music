@@ -55,6 +55,7 @@ class UpdateCheckService {
   final Future<String> Function() _readCurrentVersion;
 
   /// 同一次运行内的防重入。
+  bool _running = false;
 
   static void _defaultNotifier(String message) => showToast(message, long: true);
 
@@ -83,7 +84,13 @@ class UpdateCheckService {
 
   /// 检查并在发现新版本时提醒。返回值便于日志与测试断言。
   Future<UpdateCheckOutcome> checkAndNotify() async {
-    return UpdateCheckOutcome.skipped;
+    if (_running) return UpdateCheckOutcome.skipped;
+    _running = true;
+    try {
+      return await _run();
+    } finally {
+      _running = false;
+    }
   }
 
   Future<UpdateCheckOutcome> _run() async {

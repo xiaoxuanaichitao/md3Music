@@ -71,7 +71,16 @@ jobs:
 
       - name: Flutter analyze
         continue-on-error: true
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            grep -E 'error •|Error:|warning •' analyze.log | head -n 30 | while IFS= read -r line; do
+              echo "::warning::ANALYZE: $line"
+            done
+          fi
+          exit 0
 
       # 下载 release keystore（可选，不存在时用 debug keystore 兜底）
       - name: Download release keystore
@@ -110,9 +119,20 @@ jobs:
       # 标准版使用 Skia 渲染引擎（-Pmd3EnableImpeller=false → manifest enableImpeller=false）
       - name: Flutter build APK (standard, release, arm64-v8a, Skia)
         run: |
+          set +e
           flutter build apk --release --flavor standard --split-per-abi --target-platform android-arm64 \
             --android-project-arg=md3EnableImpeller=false \
-            --dart-define=APP_VERSION=ci-${{ github.sha }}
+            --dart-define=APP_VERSION=ci-${{ github.sha }} 2>&1 | tee build_apk.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            grep -E 'Error:|FAILURE:|e: |Exception|> |error:' build_apk.log | tail -n 30 | while IFS= read -r line; do
+              echo "::error::BUILD_ERR: $line"
+            done
+            tail -n 25 build_apk.log | while IFS= read -r line; do
+              echo "::warning::BUILD_TAIL: $line"
+            done
+            exit $status
+          fi
 
       # 原子随身听按包名识别合作应用：额外构建一个 arm64-v8a 兼容包。
       # 只覆盖 applicationId，namespace / Kotlin 包路径 / MethodChannel 均保持原样。

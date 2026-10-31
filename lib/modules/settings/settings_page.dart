@@ -11,9 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/usb_audio_service.dart';
-import '../../core/services/windows_app_lifecycle.dart';
 
 import '../../core/build_flags.dart';
 import '../../core/platform_capabilities.dart';
@@ -166,12 +164,8 @@ class _SettingsPageState extends State<SettingsPage>
   bool _uploadListeningDuration = true;
   // 「听歌统计记录」开关（默认开启：本地听歌统计入库，与云端链路无关）
   bool _listenStatsRecordingEnabled = true;
-  // 新版本提醒开关（默认开启，关闭后启动时不再查询 GitHub Release）
-  bool _updateReminderEnabled = true;
   // 还原旧版桌面图标（默认沿用当前图标，仅 Android 提供）
   bool _legacyAppIconEnabled = false;
-  // 上次已提醒的新版本号（形如 5.6.5，空串=无）。用于「更新最新版本」副标题提示。
-  String _pendingUpdateVersion = '';
   // 本地 API 服务器重启中（在线音乐区块显示加载态）
   bool _isRestarting = false;
   // 诊断日志导出进行中（关于区块显示加载态，防重复点击）
@@ -895,12 +889,8 @@ class _SettingsPageState extends State<SettingsPage>
     await _settingsRepository.getSongDanmakuEnabled();
     final amLandscapeEdgeFade = await _settingsRepository
         .getAmLandscapeEdgeFade();
-    final updateReminderEnabled = await _settingsRepository
-        .getUpdateReminderEnabled();
     final legacyAppIconEnabled = await _settingsRepository
         .getLegacyAppIconEnabled();
-    final pendingUpdateVersion = await _settingsRepository
-        .getUpdateLastNotifiedVersion();
     final desktopModeEnabled = await _settingsRepository
         .getDesktopModeEnabled();
     final predictiveBackEnabled = await _settingsRepository
@@ -932,9 +922,7 @@ class _SettingsPageState extends State<SettingsPage>
       _autoReceiveVip = autoReceiveVip;
       _uploadListeningDuration = uploadListeningDuration;
       _listenStatsRecordingEnabled = listenStatsRecordingEnabled;
-      _updateReminderEnabled = updateReminderEnabled;
       _legacyAppIconEnabled = legacyAppIconEnabled;
-      _pendingUpdateVersion = pendingUpdateVersion;
       // 桌面布局改为直读全局判定源，这里同步全局值而非本地字段。
       // 写全局源而不是仅记日志：app.dart 的启动同步可能尚未跑到
       // （或被其它入口抢先写过），本页读到持久化值时顺手校正一次，
@@ -1085,31 +1073,6 @@ class _SettingsPageState extends State<SettingsPage>
         return '中断时暂停播放，结束后自动恢复';
       case AudioFocusInterruptionMode.duckAndRestore:
         return '中断时降低音量，结束后恢复原音量';
-    }
-  }
-
-  /// 新版本提醒开关：写入后下次启动生效（本次运行已排期的检查不撤销）。
-  Future<void> _setUpdateReminderEnabled(bool value) async {
-    AppHaptics.lightImpact(HapticCategory.control);
-    setState(() {
-      _updateReminderEnabled = value;
-    });
-    await _settingsRepository.setUpdateReminderEnabled(value);
-  }
-
-  /// 通过 Android activity-alias 切换桌面图标；失败时保持开关原值。
-  Future<void> _setLegacyAppIconEnabled(bool value) async {
-    AppHaptics.lightImpact(HapticCategory.control);
-    try {
-      await _appIconChannel.invokeMethod<void>('setLegacyIcon', value);
-      await _settingsRepository.setLegacyAppIconEnabled(value);
-      if (mounted) setState(() => _legacyAppIconEnabled = value);
-    } on PlatformException catch (error) {
-      if (!mounted) return;
-      showToast('切换应用图标失败：${error.message ?? error.code}');
-    } on MissingPluginException {
-      if (!mounted) return;
-      showToast('当前 Android 构建不支持切换应用图标');
     }
   }
 

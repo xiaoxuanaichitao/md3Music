@@ -467,6 +467,8 @@ class _AppViewState extends State<_AppView> {
   }
 
   Future<void> _checkWindowsUpdateAtStartup() async {
+    if (!mounted) return;
+    if (mounted) return;
     try {
       final result = await WindowsUpdateService.instance.takeInstallResult();
       if (!mounted) return;

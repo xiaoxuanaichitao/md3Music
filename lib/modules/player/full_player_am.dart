@@ -4631,7 +4631,6 @@ class _AmStyleFullPlayerState extends State<AmStyleFullPlayer>
     // 圆点 / icon 两种形态在 TV 下不存在，故 variant 参数在这条分支上不被读取。
     if (kTvBuild) return _buildRemoteTabBar();
     final song = context.read<PlayerProvider>().currentSong;
-    final isOnline = song is Song && song.isOnline;
     return PlayerTabStrip(
       controller: _tabController,
       activeColor: Colors.white,
