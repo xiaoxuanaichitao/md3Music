@@ -10,6 +10,7 @@ void main() {
         title: '晴天',
         artist: '周杰伦',
         album: '叶惠美',
+        duration: Duration.zero,
       );
       final fileName = SongCoverSaver.generateCoverFileName(song);
       expect(fileName, startsWith('MD3Music_晴天_周杰伦_'));
@@ -22,6 +23,7 @@ void main() {
         title: 'Hello/World:Special*Song?name"1<2>3|4',
         artist: 'Singer/Name?*',
         album: 'Album',
+        duration: Duration.zero,
       );
       final fileName = SongCoverSaver.generateCoverFileName(song);
       expect(fileName.contains('/'), isFalse);
@@ -40,6 +42,7 @@ void main() {
         title: '纯音乐',
         artist: '未知歌手',
         album: '',
+        duration: Duration.zero,
       );
       final fileName1 = SongCoverSaver.generateCoverFileName(song1);
       expect(fileName1, startsWith('MD3Music_纯音乐_'));
@@ -49,6 +52,7 @@ void main() {
         title: '测试歌曲',
         artist: '',
         album: '',
+        duration: Duration.zero,
       );
       final fileName2 = SongCoverSaver.generateCoverFileName(song2);
       expect(fileName2, startsWith('MD3Music_测试歌曲_'));

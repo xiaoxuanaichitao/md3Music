@@ -8,6 +8,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -117,6 +118,7 @@ class ImageSaverPlugin(private val context: Context) {
     }
 
     /** API 29+：MediaStore 分区存储，免权限。 */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun saveViaMediaStore(src: File, fileName: String): String {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -208,6 +210,7 @@ class ImageSaverPlugin(private val context: Context) {
     }
 
     /** API 29+：MediaStore 音频分区存储。写入 Music/天乐 目录。 */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun saveAudioViaMediaStore(
         src: File,
         fileName: String,
