@@ -19,6 +19,8 @@ import '../../core/remote/tv_player_back_focus.dart';
 import '../../core/layout/responsive_layout.dart';
 import '../../core/layout/display_space.dart';
 import '../../core/remote/remote_slider.dart';
+import '../../core/services/song_cover_saver.dart';
+import '../../core/services/song_download_service.dart';
 import '../../core/services/audio_service.dart';
 import '../../core/services/desktop_lyric_service.dart';
 import '../../core/services/depth_cover_feature.dart';
@@ -4646,14 +4648,15 @@ class _AmStyleFullPlayerState extends State<AmStyleFullPlayer>
         hasControls: _tabLayout.hasControls,
         hasComments: _tabLayout.hasComments,
         desktopLyricEnabled: DesktopLyricService.instance.enabled,
-        // 长按封面段：弹出下载音质选择（本地歌曲与钩子缺失时不给回调）
-        coverOnLongPress:
-            song != null &&
-                    isOnline &&
-                    AmStyleFullPlayer.coverLongPressCallback != null
+        // 长按封面段：优先走注入钩子，缺失时弹出封面预览与保存弹窗
+        coverOnLongPress: song != null
             ? () {
                 AppHaptics.lightImpact(HapticCategory.navigation);
-                AmStyleFullPlayer.coverLongPressCallback!(context, song);
+                if (AmStyleFullPlayer.coverLongPressCallback != null) {
+                  AmStyleFullPlayer.coverLongPressCallback!(context, song);
+                } else {
+                  SongCoverSaver.showCoverPreviewDialog(context, song);
+                }
               }
             : null,
         lyricsOnLongPress: _toggleDesktopLyric,
@@ -5066,6 +5069,24 @@ class _AmStyleFullPlayerState extends State<AmStyleFullPlayer>
                     _pageNavigator(rootContext)?.push(
                       MaterialPageRoute(builder: (_) => const SongInfoPage()),
                     );
+                  },
+                ),
+                // 下载歌曲音频到系统音乐库
+                ListTile(
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('下载歌曲'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    SongDownloadService.downloadSong(song);
+                  },
+                ),
+                // 保存歌曲封面到系统相册
+                ListTile(
+                  leading: const Icon(Icons.image_outlined),
+                  title: const Text('保存封面'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    SongCoverSaver.saveCoverWithFeedback(rootContext, song);
                   },
                 ),
                 // 播放速度：低频动作，不占底部常驻位置

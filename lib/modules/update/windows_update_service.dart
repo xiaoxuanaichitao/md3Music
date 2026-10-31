@@ -45,25 +45,7 @@ class WindowsUpdateService {
   bool _checking = false;
 
   Future<ReleaseInfo?> checkForUpdate({bool manual = false}) async {
-    if (_checking) return null;
-    _checking = true;
-    try {
-      if (!manual && !await _settings.getUpdateReminderEnabled()) return null;
-
-      final release = await _releases.fetchLatestDetails();
-      if (release == null || release.windowsZipUrl == null) return null;
-
-      final current = (await PackageInfo.fromPlatform()).version;
-      if (!isNewerRelease(release.version, current)) return null;
-      // Windows 每次启动都允许提示尚未安装的版本；不沿用 Android 的
-      // 12 小时节流和跨启动「已提醒」标记，否则点过稍后就再也看不到弹窗。
-      return release;
-    } catch (error, stack) {
-      debugPrint('[WindowsUpdate] 检查更新失败：$error\n$stack');
-      return null;
-    } finally {
-      _checking = false;
-    }
+    return null;
   }
 
   Future<File> download(

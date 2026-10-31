@@ -2,6 +2,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:material_ui/material_ui.dart';
 
+import '../core/services/song_cover_saver.dart';
 import '../data/models/song.dart';
 import '../modules/player/player_cover_morph.dart' show CoverGeometryProbe;
 import 'smart_artwork_image.dart';
@@ -140,7 +141,9 @@ class _SongMenuHeaderState extends State<SongMenuHeader>
         children: [
           // 左侧封面槽位：外层 84×84 固定，收缩时右侧文字不回流跳动；
           // 内层封面在槽位中心收缩（84 → 2×16=32，圆角恒 16，32 即正圆）。
-          SizedBox(
+          GestureDetector(
+            onTap: () => SongCoverSaver.showCoverPreviewDialog(context, widget.song),
+            child: SizedBox(
             width: _kCoverSize,
             height: _kCoverSize,
             child: Center(
@@ -169,6 +172,7 @@ class _SongMenuHeaderState extends State<SongMenuHeader>
                 ),
               ),
             ),
+          ),
           ),
           const SizedBox(width: 16),
           // 右侧文字信息：歌名 / 歌手 / 专辑（与改动前逐行一致）

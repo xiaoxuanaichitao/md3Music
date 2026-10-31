@@ -16,17 +16,9 @@ import java.io.File
 import java.io.FileInputStream
 
 /**
- * 图片保存插件：MethodChannel "com.md3music.md3music/image_saver"
+ * 媒体文件保存插件：MethodChannel "com.md3music.md3music/image_saver"
  *
- * Dart 侧先把图片下载到应用临时目录，再调 saveImage(path, fileName)：
- * - API 29+（Android 10，分区存储）：写入 MediaStore.Images，
- *   RELATIVE_PATH = Pictures/MD3Music，**不需要任何运行时权限**；
- *   先 IS_PENDING=1 写完再置 0，避免相册扫到半张图；写失败必须 delete 占位行。
- * - API < 29：写入 Environment.getExternalStoragePublicDirectory(Pictures)/MD3Music。
- *   WRITE_EXTERNAL_STORAGE 在 API 28 及以下是安装期 normal 权限（manifest 已声明），
- *   无需运行时申请，这里只做防御性校验。
- *
- * 复制是重 IO（几 MB 图片），放子线程执行，结果回主线程回调 Flutter。
+ * 支持保存图片至系统相册，以及保存歌曲音频至系统音乐库。
  */
 class ImageSaverPlugin(private val context: Context) {
 
@@ -79,6 +71,7 @@ class ImageSaverPlugin(private val context: Context) {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "saveImage" -> handleSaveImage(call, result)
+                    "saveAudio" -> handleSaveAudio(call, result)
                     else -> result.notImplemented()
                 }
             }
@@ -142,7 +135,6 @@ class ImageSaverPlugin(private val context: Context) {
                 ?: throw IllegalStateException("openOutputStream 返回 null")
             out.use { output -> FileInputStream(src).use { it.copyTo(output) } }
         } catch (e: Exception) {
-            // 写失败必须删掉占位行，否则相册里会留一张 0 字节坏图
             runCatching { resolver.delete(uri, null, null) }
             throw e
         }
@@ -163,6 +155,106 @@ class ImageSaverPlugin(private val context: Context) {
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
             ALBUM_NAME,
+        )
+        if (!dir.isDirectory && !dir.mkdirs()) {
+            throw IllegalStateException("创建目录失败: $dir")
+        }
+        val target = File(dir, dedupeFileName(fileName) { File(dir, it).exists() })
+        FileInputStream(src).use { input -> target.outputStream().use { input.copyTo(it) } }
+        return target.absolutePath
+    }
+
+    private fun handleSaveAudio(call: MethodCall, result: MethodChannel.Result) {
+        val path = call.argument<String>("path")
+        if (path.isNullOrEmpty()) {
+            result.error("INVALID_ARGUMENT", "path is required", null)
+            return
+        }
+        val src = File(path)
+        if (!src.isFile) {
+            result.error("FILE_NOT_FOUND", "源文件不存在: $path", null)
+            return
+        }
+        val rawFileName = call.argument<String>("fileName") ?: src.name
+        val fileName = sanitizeFileName(rawFileName)
+        val title = call.argument<String>("title") ?: src.nameWithoutExtension
+        val artist = call.argument<String>("artist") ?: "天乐"
+
+        Thread {
+            try {
+                val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    saveAudioViaMediaStore(src, fileName, title, artist)
+                } else {
+                    saveAudioViaPublicDir(src, fileName)
+                }
+                android.util.Log.i("ImageSaver", "savedAudio=$saved fileName=$fileName")
+                mainHandler.post { result.success(saved) }
+            } catch (e: SecurityException) {
+                android.util.Log.e("ImageSaver", "PERMISSION_DENIED", e)
+                mainHandler.post {
+                    result.error("PERMISSION_DENIED", "缺少存储写入权限", null)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ImageSaver", "SAVE_AUDIO_FAILED", e)
+                mainHandler.post {
+                    result.error(
+                        "SAVE_AUDIO_FAILED",
+                        "${e.javaClass.simpleName}: ${e.message}",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    /** API 29+：MediaStore 音频分区存储。写入 Music/天乐 目录。 */
+    private fun saveAudioViaMediaStore(
+        src: File,
+        fileName: String,
+        title: String,
+        artist: String
+    ): String {
+        val resolver = context.contentResolver
+        val isFlac = fileName.endsWith(".flac", ignoreCase = true)
+        val mime = if (isFlac) "audio/flac" else "audio/mpeg"
+        val values = ContentValues().apply {
+            put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Audio.Media.TITLE, title)
+            put(MediaStore.Audio.Media.ARTIST, artist)
+            put(MediaStore.Audio.Media.MIME_TYPE, mime)
+            put(
+                MediaStore.Audio.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_MUSIC + "/天乐",
+            )
+            put(MediaStore.Audio.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("MediaStore Audio insert 返回 null")
+        try {
+            val out = resolver.openOutputStream(uri)
+                ?: throw IllegalStateException("openOutputStream 返回 null")
+            out.use { output -> FileInputStream(src).use { it.copyTo(output) } }
+        } catch (e: Exception) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw e
+        }
+        values.clear()
+        values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri.toString()
+    }
+
+    /** API < 29：公共 Music 目录。 */
+    private fun saveAudioViaPublicDir(src: File, fileName: String): String {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) throw SecurityException("WRITE_EXTERNAL_STORAGE 未授予")
+
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            "天乐",
         )
         if (!dir.isDirectory && !dir.mkdirs()) {
             throw IllegalStateException("创建目录失败: $dir")

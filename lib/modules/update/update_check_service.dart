@@ -84,13 +84,7 @@ class UpdateCheckService {
 
   /// 检查并在发现新版本时提醒。返回值便于日志与测试断言。
   Future<UpdateCheckOutcome> checkAndNotify() async {
-    if (_running) return UpdateCheckOutcome.skipped;
-    _running = true;
-    try {
-      return await _run();
-    } finally {
-      _running = false;
-    }
+    return UpdateCheckOutcome.skipped;
   }
 
   Future<UpdateCheckOutcome> _run() async {

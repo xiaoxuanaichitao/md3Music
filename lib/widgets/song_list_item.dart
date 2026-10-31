@@ -12,6 +12,8 @@ import '../core/utils/app_toast.dart';
 import '../data/models/song.dart';
 import '../modules/library/song_match_sheet.dart';
 import '../modules/player/comments_view.dart';
+import '../core/services/song_cover_saver.dart';
+import '../core/services/song_download_service.dart';
 import '../modules/player/song_accompany_sheet.dart';
 import '../modules/player/song_ranking_sheet.dart';
 import '../modules/sheet/song_sheet_sheet.dart';
@@ -169,6 +171,22 @@ class SongListItem extends StatelessWidget {
               },
             ),
             // 复制歌名与歌手：仅手机与桌面端展示（TV 端无剪贴板粘贴场景）
+            ListTile(
+              leading: const Icon(Icons.download_outlined),
+              title: const Text('下载歌曲'),
+              onTap: () {
+                Navigator.pop(ctx);
+                SongDownloadService.downloadSong(song);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('保存封面'),
+              onTap: () {
+                Navigator.pop(ctx);
+                SongCoverSaver.saveCoverWithFeedback(context, song);
+              },
+            ),
             if (!kTvBuild)
               ListTile(
                 leading: const Icon(Icons.copy_outlined),

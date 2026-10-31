@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
+import '../../core/services/song_cover_saver.dart';
+import '../../core/services/song_download_service.dart';
 import '../../core/platform_capabilities.dart';
 import '../../core/services/usb_audio_service.dart';
 import '../../core/utils/audio_format_utils.dart';
@@ -388,17 +390,23 @@ class _SongInfoPageState extends State<SongInfoPage> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Row(
         children: [
-          ClipRRect(
+          InkWell(
             borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              width: 64,
-              height: 64,
-              child: artUrl != null
-                  ? PlayerArtworkImage(artworkUri: artUrl, isFill: true)
-                  : Container(
-                      color: colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.music_note, size: 28),
-                    ),
+            onTap: song != null
+                ? () => SongCoverSaver.showCoverPreviewDialog(context, song)
+                : null,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: artUrl != null
+                    ? PlayerArtworkImage(artworkUri: artUrl, isFill: true)
+                    : Container(
+                        color: colorScheme.surfaceContainerHighest,
+                        child: const Icon(Icons.music_note, size: 28),
+                      ),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -419,6 +427,19 @@ class _SongInfoPageState extends State<SongInfoPage> {
               ],
             ),
           ),
+          if (song != null) ...[
+            IconButton(
+              icon: const Icon(Icons.download_rounded),
+              tooltip: '下载歌曲音频',
+              onPressed: () => SongDownloadService.downloadSong(song),
+            ),
+            IconButton(
+              icon: const Icon(Icons.image_outlined),
+              tooltip: '保存封面',
+              onPressed: () =>
+                  SongCoverSaver.saveCoverWithFeedback(context, song),
+            ),
+          ],
         ],
       ),
     );

@@ -107,22 +107,72 @@ class ImageGallerySaver {
 
     final bytes = await downloadImageBytes(uri, fetcher: fetcher);
     final fileName = imageFileNameFor(uri, now ?? DateTime.now());
+    return saveBytesToGallery(
+      bytes,
+      fileName: fileName,
+      now: now,
+      tempDir: tempDir,
+    );
+  }
+
+  /// 保存图片字节到系统相册或图片目录（支持 Android MediaStore 与 Windows Pictures）。
+  static Future<String> saveBytesToGallery(
+    Uint8List bytes, {
+    String? fileName,
+    DateTime? now,
+    Future<Directory> Function()? tempDir,
+  }) async {
+    if (bytes.isEmpty) throw const ImageSaveException('图片内容为空');
+    if (bytes.length > maxBytes) throw const ImageSaveException('图片过大');
+
+    final name = fileName ??
+        'MD3Music_${(now ?? DateTime.now()).millisecondsSinceEpoch}.jpg';
     final dir = await (tempDir ?? getTemporaryDirectory)();
-    final file = File('${dir.path}${Platform.pathSeparator}$fileName');
+    final file = File('${dir.path}${Platform.pathSeparator}$name');
+
     // 不在此处删除临时文件：原生在后台线程复制该文件（见 ImageSaverPlugin），
     // invokeMethod 返回即删会与复制竞争；留给系统按缓存目录策略清理。
     try {
       await file.writeAsBytes(bytes, flush: true);
-      final saved = await _channel.invokeMethod<String>('saveImage', {
-        'path': file.path,
-        'fileName': fileName,
-      });
+      String? saved;
+      try {
+        saved = await _channel.invokeMethod<String>('saveImage', {
+          'path': file.path,
+          'fileName': name,
+        });
+      } on MissingPluginException {
+        if (defaultTargetPlatform == TargetPlatform.windows) {
+          saved = await _saveToWindowsPictures(file, name);
+        } else {
+          rethrow;
+        }
+      }
       return saved ?? file.path;
     } on PlatformException catch (e) {
       throw ImageSaveException(e.message ?? '保存失败');
     } on FileSystemException catch (e) {
       throw ImageSaveException('写入临时文件失败：${e.message}');
     }
+  }
+
+  static Future<String> _saveToWindowsPictures(
+    File srcFile,
+    String fileName,
+  ) async {
+    final userProfile = Platform.environment['USERPROFILE'];
+    Directory saveDir;
+    if (userProfile != null && userProfile.isNotEmpty) {
+      saveDir = Directory('$userProfile\\Pictures\\MD3Music');
+    } else {
+      final docDir = await getApplicationDocumentsDirectory();
+      saveDir = Directory('${docDir.path}\\MD3Music');
+    }
+    if (!saveDir.existsSync()) {
+      await saveDir.create(recursive: true);
+    }
+    final destFile = File('${saveDir.path}\\$fileName');
+    await srcFile.copy(destFile.path);
+    return destFile.path;
   }
 
   /// 保存并给出 toast 反馈，返回是否成功（UI 层只需调这一个）。
@@ -133,7 +183,36 @@ class ImageGallerySaver {
     showToast('正在保存图片…');
     try {
       await saveImageToGallery(url);
-      showToast('已保存到相册');
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        showToast('已保存到相册 (Pictures/MD3Music)');
+      } else {
+        showToast('已保存到相册');
+      }
+      return true;
+    } on ImageSaveException catch (e) {
+      showToast('保存失败：${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('[ImageGallerySaver] 保存失败: $e');
+      showToast('保存失败');
+      return false;
+    }
+  }
+
+  /// 保存图片字节并给出 toast 反馈。
+  static Future<bool> saveBytesToGalleryWithFeedback(
+    BuildContext context,
+    Uint8List bytes, {
+    String? fileName,
+  }) async {
+    showToast('正在保存图片…');
+    try {
+      await saveBytesToGallery(bytes, fileName: fileName);
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        showToast('已保存到相册 (Pictures/MD3Music)');
+      } else {
+        showToast('已保存到相册');
+      }
       return true;
     } on ImageSaveException catch (e) {
       showToast('保存失败：${e.message}');

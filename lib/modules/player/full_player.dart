@@ -17,6 +17,8 @@ import '../../core/remote/tv_menu_key_shortcuts.dart';
 import '../../core/remote/tv_player_back_focus.dart';
 import '../../core/layout/responsive_layout.dart';
 import '../../core/remote/remote_slider.dart';
+import '../../core/services/song_cover_saver.dart';
+import '../../core/services/song_download_service.dart';
 import '../../core/services/audio_service.dart';
 import '../../core/services/desktop_lyric_service.dart';
 import '../../core/services/depth_cover_feature.dart';
@@ -4599,6 +4601,24 @@ class _FullPlayerState extends State<FullPlayer>
                     _pageNavigator(rootContext)?.push(
                       MaterialPageRoute(builder: (_) => const SongInfoPage()),
                     );
+                  },
+                ),
+                // 下载歌曲音频到系统音乐库
+                ListTile(
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('下载歌曲'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    SongDownloadService.downloadSong(song);
+                  },
+                ),
+                // 保存歌曲封面到系统相册
+                ListTile(
+                  leading: const Icon(Icons.image_outlined),
+                  title: const Text('保存封面'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    SongCoverSaver.saveCoverWithFeedback(rootContext, song);
                   },
                 ),
                 // 播放速度：低频动作，不占底部常驻位置

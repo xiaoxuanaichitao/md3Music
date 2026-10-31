@@ -336,9 +336,10 @@ Future<(bool, bool, bool, ThemeMode?)> runBootstrap() async {
   // 启动后静默检查 GitHub Release：发现新版本仅 toast 提醒。
   // 首次启动引导 / 用户协议未确认时抑制，避免与首启流程争夺注意力。
   // 内部仅在 Android 生效、延迟 8s 后执行、12 小时内不重复请求；可在设置中关闭。
-  UpdateCheckService.instance.scheduleStartupCheck(
-    suppress: needsOnboarding || needsUserAgreement,
-  );
+  // 个人专版：禁用启动检查更新
+  // UpdateCheckService.instance.scheduleStartupCheck(
+  //   suppress: needsOnboarding || needsUserAgreement,
+  // );
 
   await windowsFontFuture;
   markStartup('bootstrap_ready');
