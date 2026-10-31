@@ -42,7 +42,6 @@ class WindowsUpdateService {
   final GithubReleaseClient _releases;
   final SettingsRepository _settings;
   final Dio _dio;
-  bool _checking = false;
 
   Future<ReleaseInfo?> checkForUpdate({bool manual = false}) async {
     return null;

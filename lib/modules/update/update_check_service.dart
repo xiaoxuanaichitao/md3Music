@@ -55,7 +55,6 @@ class UpdateCheckService {
   final Future<String> Function() _readCurrentVersion;
 
   /// 同一次运行内的防重入。
-  bool _running = false;
 
   static void _defaultNotifier(String message) => showToast(message, long: true);
 

@@ -12,7 +12,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../update/update_web_links.dart';
 import '../../core/services/usb_audio_service.dart';
 import '../../core/services/windows_app_lifecycle.dart';
 
@@ -95,8 +94,6 @@ import '../../core/layout/adaptive_navigator.dart' show DetailEmptyState;
 import 'home_tab_manager.dart';
 import 'mcp_agent_section.dart';
 import 'settings_search_index.g.dart';
-import '../update/windows_update_dialog.dart';
-import '../update/windows_update_service.dart';
 
 /// CI compile-time version injection via --dart-define=APP_VERSION=X
 /// Fallback display when runtime PackageInfo read fails.
@@ -179,7 +176,6 @@ class _SettingsPageState extends State<SettingsPage>
   bool _isRestarting = false;
   // 诊断日志导出进行中（关于区块显示加载态，防重复点击）
   bool _isExportingLogs = false;
-  bool _isCheckingWindowsUpdate = false;
   bool _isResettingSettings = false;
   bool _useDynamicColor = false;
   // 封面动态取色开关（与系统主题色独立、可叠加；开启时封面优先）
@@ -6826,38 +6822,7 @@ class _SettingsPageState extends State<SettingsPage>
     );
   }
 
-  Future<void> _openReleasesUrl() async {
-    const url = 'https://github.com/zzyoxml/md3Music/releases';
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
 
-  Future<void> _checkWindowsUpdateManually() async {
-    if (_isCheckingWindowsUpdate) return;
-    setState(() => _isCheckingWindowsUpdate = true);
-    try {
-      final release = await WindowsUpdateService.instance.checkForUpdate(
-        manual: true,
-      );
-      if (!mounted) return;
-      if (release == null) {
-        showToast('当前已是最新版本，或暂时无法连接发布服务器', long: true);
-        return;
-      }
-      await showWindowsUpdateDialog(
-        context,
-        release,
-        onExitForUpdate: finishWindowsAppExit,
-      );
-      if (mounted) {
-        setState(() => _pendingUpdateVersion = release.version);
-      }
-    } finally {
-      if (mounted) setState(() => _isCheckingWindowsUpdate = false);
-    }
-  }
 
   /// 导出诊断日志：构建 zip 报告 → 打开系统分享面板。
   Future<void> _exportDiagnosticLogs() async {
