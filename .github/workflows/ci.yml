@@ -69,12 +69,16 @@ jobs:
         continue-on-error: true
         run: |
           set -e
-          echo "Downloading release.keystore from 'keystore' release..."
+          echo "Downloading release.keystore..."
           if ! curl -fL --retry 3 -o /tmp/release.keystore \
               "https://github.com/${GITHUB_REPOSITORY}/releases/download/keystore/release.keystore"; then
-            echo "keystore release 不存在，使用 debug keystore"
-            echo "keystore_available=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "当前仓库未找到 keystore release，回退拉取固定签名 release.keystore..."
+            if ! curl -fL --retry 3 -o /tmp/release.keystore \
+                "https://github.com/zzyoxml/md3Music/releases/download/keystore/release.keystore"; then
+              echo "keystore 不存在，使用 debug keystore"
+              echo "keystore_available=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           cp /tmp/release.keystore android/app/release.keystore
           rm /tmp/release.keystore
@@ -95,12 +99,16 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
 
-      # 仅构建标准版 Release APK（arm64-v8a, Skia）
+      # 仅构建标准版 Release APK（arm64-v8a, Skia），自动递增 build-number 防止覆盖安装版本冲突
       - name: Flutter build APK (standard, release, arm64-v8a, Skia)
         run: |
+          ver="$(grep -m1 '^version:' pubspec.yaml | sed 's/^version:[[:space:]]*//' | cut -d+ -f1)"
+          build_num=$((100 + GITHUB_RUN_NUMBER))
           flutter build apk --release --flavor standard --split-per-abi --target-platform android-arm64 \
+            --build-name="${ver}" \
+            --build-number="${build_num}" \
             --android-project-arg=md3EnableImpeller=false \
-            --dart-define=APP_VERSION=ci-${{ github.sha }}
+            --dart-define=APP_VERSION="${ver}"
 
       - name: Rename APK to release-ready name
         run: |
