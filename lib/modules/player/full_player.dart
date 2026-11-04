@@ -4609,7 +4609,10 @@ class _FullPlayerState extends State<FullPlayer>
                   title: const Text('下载歌曲'),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    SongDownloadService.downloadSong(song);
+                    SongDownloadService.showDownloadQualityDialog(
+                      rootContext,
+                      song,
+                    );
                   },
                 ),
                 // 保存歌曲封面到系统相册

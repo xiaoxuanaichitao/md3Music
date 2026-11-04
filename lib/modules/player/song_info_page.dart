@@ -431,7 +431,8 @@ class _SongInfoPageState extends State<SongInfoPage> {
             IconButton(
               icon: const Icon(Icons.download_rounded),
               tooltip: '下载歌曲音频',
-              onPressed: () => SongDownloadService.downloadSong(song),
+              onPressed: () =>
+                  SongDownloadService.showDownloadQualityDialog(context, song),
             ),
             IconButton(
               icon: const Icon(Icons.image_outlined),

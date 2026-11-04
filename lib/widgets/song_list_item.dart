@@ -176,7 +176,7 @@ class SongListItem extends StatelessWidget {
               title: const Text('下载歌曲'),
               onTap: () {
                 Navigator.pop(ctx);
-                SongDownloadService.downloadSong(song);
+                SongDownloadService.showDownloadQualityDialog(context, song);
               },
             ),
             ListTile(

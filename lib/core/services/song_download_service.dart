@@ -3,12 +3,28 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../data/models/song.dart';
 import '../../services/kugou_api/kugou_api_client.dart';
 import '../../services/kugou_api/kugou_models.dart';
 import '../utils/app_toast.dart';
+
+/// 下载音质候选项描述
+class DownloadQualityOption {
+  final String quality;
+  final String title;
+  final String subtitle;
+  final String badge;
+
+  const DownloadQualityOption({
+    required this.quality,
+    required this.title,
+    required this.subtitle,
+    required this.badge,
+  });
+}
 
 /// 歌曲音频下载与保存服务
 class SongDownloadService {
@@ -19,6 +35,43 @@ class SongDownloadService {
 
   /// 正在下载中的歌曲 ID 集合，避免重复点击多次下载
   static final Set<String> _downloadingIds = <String>{};
+
+  /// 记录用户上次选择的下载音质（默认无损音质）
+  static String _lastSelectedQuality = KugouQuality.lossless;
+
+  /// 可选下载音质档位列表（从高到低排列）
+  static const List<DownloadQualityOption> qualityOptions = [
+    DownloadQualityOption(
+      quality: KugouQuality.viperTape,
+      title: '蝰蛇母带',
+      subtitle: '超清母带重制音质 · FLAC',
+      badge: 'MASTER',
+    ),
+    DownloadQualityOption(
+      quality: KugouQuality.hires,
+      title: 'Hi-Res 音质',
+      subtitle: '高解析度无损音频 · 24bit FLAC',
+      badge: 'Hi-Res',
+    ),
+    DownloadQualityOption(
+      quality: KugouQuality.lossless,
+      title: '无损音质',
+      subtitle: 'CD 级无损音频 · 16bit FLAC',
+      badge: 'SQ',
+    ),
+    DownloadQualityOption(
+      quality: KugouQuality.high,
+      title: '高品质',
+      subtitle: '320kbps 高码率 · MP3',
+      badge: 'HQ',
+    ),
+    DownloadQualityOption(
+      quality: KugouQuality.standard,
+      title: '标准音质',
+      subtitle: '128kbps 标准音质 · MP3',
+      badge: 'STD',
+    ),
+  ];
 
   /// 净化文件名中不合法的操作系统字符
   static String sanitizeFileName(String name) {
@@ -36,10 +89,116 @@ class SongDownloadService {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
+  /// 弹出下载音质选择对话框，用户选择后开始下载
+  static Future<void> showDownloadQualityDialog(
+    BuildContext context,
+    Song song,
+  ) async {
+    if (!song.isOnline && song.localPath != null && song.localPath!.isNotEmpty) {
+      showToast('该歌曲已是本地歌曲，无需下载');
+      return;
+    }
+
+    if (_downloadingIds.contains(song.id)) {
+      showToast('《${song.title}》正在下载中，请勿重复操作');
+      return;
+    }
+
+    final selectedQuality = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final colorScheme = theme.colorScheme;
+        final textTheme = theme.textTheme;
+        final artistText = song.artist.isEmpty ? '未知歌手' : song.artist;
+
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          backgroundColor: colorScheme.surfaceContainerLow,
+          elevation: 6,
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Text(
+                          '选择下载音质',
+                          style: textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: '关闭',
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(
+                      '${song.displayName} - $artistText',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  for (final option in qualityOptions) ...[
+                    _DownloadQualityTile(
+                      option: option,
+                      isSelected: option.quality == _lastSelectedQuality,
+                      onTap: () =>
+                          Navigator.of(dialogContext).pop(option.quality),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(
+                      '注：若歌曲无所选高音质音源，将自动降级为最高可用音质下载',
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.75,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selectedQuality == null || selectedQuality.isEmpty) {
+      return;
+    }
+
+    _lastSelectedQuality = selectedQuality;
+    await downloadSong(song, preferredQuality: selectedQuality);
+  }
+
   /// 下载歌曲到本地音乐库
   ///
   /// [song] 需要下载的歌曲
-  /// [preferredQuality] 优先音质，默认 [KugouQuality.lossless]（优先 FLAC 无损）
+  /// [preferredQuality] 优先音质，默认使用上次选择的音质（初始为无损 FLAC）
   static Future<void> downloadSong(
     Song song, {
     String? preferredQuality,
@@ -57,9 +216,10 @@ class SongDownloadService {
     _downloadingIds.add(song.id);
 
     try {
-      showToast('正在获取《${song.title}》下载地址…');
+      final targetQuality = preferredQuality ?? _lastSelectedQuality;
+      final targetLabel = KugouQuality.labelOf(targetQuality);
+      showToast('正在获取《${song.title}》[$targetLabel]下载地址…');
 
-      final targetQuality = preferredQuality ?? KugouQuality.lossless;
       final playUrl = await KugouApiClient().getSongUrlWithFallback(
         song.id,
         quality: targetQuality,
@@ -75,24 +235,39 @@ class SongDownloadService {
       // 根据实际获取到的音质或 URL 决定文件扩展名
       String ext = 'mp3';
       final urlLower = playUrl.url.toLowerCase();
-      if (playUrl.quality == KugouQuality.lossless || urlLower.contains('.flac')) {
+      if (playUrl.quality == KugouQuality.lossless ||
+          playUrl.quality == KugouQuality.hires ||
+          playUrl.quality == KugouQuality.viperTape ||
+          urlLower.contains('.flac')) {
         ext = 'flac';
-      } else if (urlLower.contains('.m4a')) {
+      } else if (urlLower.contains('.m4a') || urlLower.contains('.aac')) {
         ext = 'm4a';
       }
 
       final cleanArtist = sanitizeFileName(song.artist);
       final cleanTitle = sanitizeFileName(song.title);
-      final stem = cleanArtist.isNotEmpty ? '$cleanArtist - $cleanTitle' : cleanTitle;
+      final stem = cleanArtist.isNotEmpty
+          ? '$cleanArtist - $cleanTitle'
+          : cleanTitle;
       final fileName = '$stem.$ext';
 
-      final qualityName = playUrl.quality.toUpperCase();
-      final sizeInfo = playUrl.fileSize > 0 ? ' (${formatBytes(playUrl.fileSize)})' : '';
-      showToast('开始下载《${song.title}》[$qualityName]$sizeInfo…');
+      final actualLabel = KugouQuality.labelOf(playUrl.quality);
+      final sizeInfo = playUrl.fileSize > 0
+          ? ' (${formatBytes(playUrl.fileSize)})'
+          : '';
+      if (playUrl.quality != targetQuality) {
+        showToast(
+          '所选[$targetLabel]不可用，已自动切换为[$actualLabel]下载《${song.title}》$sizeInfo…',
+        );
+      } else {
+        showToast('开始下载《${song.title}》[$actualLabel]$sizeInfo…');
+      }
 
       // 下载到临时文件
       final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}${Platform.pathSeparator}dl_${song.id}_$fileName');
+      final tempFile = File(
+        '${tempDir.path}${Platform.pathSeparator}dl_${song.id}_$fileName',
+      );
 
       final dio = Dio();
       await dio.download(
@@ -118,15 +293,19 @@ class SongDownloadService {
             'title': song.title,
             'artist': song.artist,
           });
-          showToast('《${song.title}》已保存至系统音乐库 (Music/天乐)');
+          showToast('《${song.title}》[$actualLabel]已保存至系统音乐库 (Music/天乐)');
         } catch (e) {
           debugPrint('[SongDownloadService] Android saveAudio error: $e');
           // 降级：保存到应用外置音乐目录
-          final extDirs = await getExternalStorageDirectories(type: StorageDirectory.music);
+          final extDirs = await getExternalStorageDirectories(
+            type: StorageDirectory.music,
+          );
           final baseDir = (extDirs != null && extDirs.isNotEmpty)
               ? extDirs.first
               : await getApplicationDocumentsDirectory();
-          final dest = File('${baseDir.path}${Platform.pathSeparator}$fileName');
+          final dest = File(
+            '${baseDir.path}${Platform.pathSeparator}$fileName',
+          );
           await tempFile.copy(dest.path);
           showToast('《${song.title}》已下载至：${dest.path}');
         }
@@ -138,7 +317,7 @@ class SongDownloadService {
         }
         final dest = File('${musicDir.path}\\$fileName');
         await tempFile.copy(dest.path);
-        showToast('《${song.title}》已下载至：Music\\天乐\\$fileName');
+        showToast('《${song.title}》[$actualLabel]已下载至：Music\\天乐\\$fileName');
       } else {
         final docDir = await getApplicationDocumentsDirectory();
         final dest = File('${docDir.path}${Platform.pathSeparator}$fileName');
@@ -158,5 +337,93 @@ class SongDownloadService {
     } finally {
       _downloadingIds.remove(song.id);
     }
+  }
+}
+
+class _DownloadQualityTile extends StatelessWidget {
+  final DownloadQualityOption option;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _DownloadQualityTile({
+    required this.option,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
+    return Material(
+      color: isSelected
+          ? colorScheme.secondaryContainer.withValues(alpha: 0.7)
+          : colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? colorScheme.primary
+                      : colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  option.badge,
+                  style: textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: isSelected
+                        ? colorScheme.onPrimary
+                        : colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      option.title,
+                      style: textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      option.subtitle,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                isSelected
+                    ? Icons.check_circle_rounded
+                    : Icons.download_for_offline_outlined,
+                size: 20,
+                color: isSelected
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
