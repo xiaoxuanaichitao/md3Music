@@ -187,6 +187,14 @@ class SongListItem extends StatelessWidget {
                 SongCoverSaver.saveCoverWithFeedback(context, song);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.motion_photos_on_outlined),
+              title: const Text('保存动态封面'),
+              onTap: () {
+                Navigator.pop(ctx);
+                SongCoverSaver.saveDynamicCoverWithFeedback(context, song);
+              },
+            ),
             if (!kTvBuild)
               ListTile(
                 leading: const Icon(Icons.copy_outlined),

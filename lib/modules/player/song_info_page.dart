@@ -440,6 +440,12 @@ class _SongInfoPageState extends State<SongInfoPage> {
               onPressed: () =>
                   SongCoverSaver.saveCoverWithFeedback(context, song),
             ),
+            IconButton(
+              icon: const Icon(Icons.motion_photos_on_outlined),
+              tooltip: '保存动态封面',
+              onPressed: () =>
+                  SongCoverSaver.saveDynamicCoverWithFeedback(context, song),
+            ),
           ],
         ],
       ),

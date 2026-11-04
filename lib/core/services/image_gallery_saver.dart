@@ -34,6 +34,9 @@ class ImageGallerySaver {
   /// 单张图片体积上限：超过多半是错误页/占位图，存进相册反而是垃圾。
   static const int maxBytes = 20 * 1024 * 1024;
 
+  /// 动态封面视频体积上限（80MB）。
+  static const int maxVideoBytes = 80 * 1024 * 1024;
+
   /// 下载超时。
   static const Duration timeout = Duration(seconds: 20);
 
@@ -137,6 +140,46 @@ class ImageGallerySaver {
       String? saved;
       try {
         saved = await _channel.invokeMethod<String>('saveImage', {
+          'path': file.path,
+          'fileName': name,
+        });
+      } on MissingPluginException {
+        if (defaultTargetPlatform == TargetPlatform.windows) {
+          saved = await _saveToWindowsPictures(file, name);
+        } else {
+          rethrow;
+        }
+      }
+      return saved ?? file.path;
+    } on PlatformException catch (e) {
+      throw ImageSaveException(e.message ?? '保存失败');
+    } on FileSystemException catch (e) {
+      throw ImageSaveException('写入临时文件失败：${e.message}');
+    }
+  }
+
+  /// 保存动态封面视频（MP4）字节到系统相册或图片目录。
+  static Future<String> saveVideoBytesToGallery(
+    Uint8List bytes, {
+    String? fileName,
+    DateTime? now,
+    Future<Directory> Function()? tempDir,
+  }) async {
+    if (bytes.isEmpty) throw const ImageSaveException('视频内容为空');
+    if (bytes.length > maxVideoBytes) throw const ImageSaveException('视频文件过大');
+
+    final rawName = fileName ??
+        'MD3Music_dycover_${(now ?? DateTime.now()).millisecondsSinceEpoch}.mp4';
+    final name =
+        rawName.toLowerCase().endsWith('.mp4') ? rawName : '$rawName.mp4';
+    final dir = await (tempDir ?? getTemporaryDirectory)();
+    final file = File('${dir.path}${Platform.pathSeparator}$name');
+
+    try {
+      await file.writeAsBytes(bytes, flush: true);
+      String? saved;
+      try {
+        saved = await _channel.invokeMethod<String>('saveVideo', {
           'path': file.path,
           'fileName': name,
         });

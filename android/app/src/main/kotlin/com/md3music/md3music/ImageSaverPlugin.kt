@@ -72,6 +72,7 @@ class ImageSaverPlugin(private val context: Context) {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "saveImage" -> handleSaveImage(call, result)
+                    "saveVideo" -> handleSaveVideo(call, result)
                     "saveAudio" -> handleSaveAudio(call, result)
                     else -> result.notImplemented()
                 }
@@ -258,6 +259,100 @@ class ImageSaverPlugin(private val context: Context) {
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
             "天乐",
+        )
+        if (!dir.isDirectory && !dir.mkdirs()) {
+            throw IllegalStateException("创建目录失败: $dir")
+        }
+        val target = File(dir, dedupeFileName(fileName) { File(dir, it).exists() })
+        FileInputStream(src).use { input -> target.outputStream().use { input.copyTo(it) } }
+        return target.absolutePath
+    }
+
+    private fun handleSaveVideo(call: MethodCall, result: MethodChannel.Result) {
+        val path = call.argument<String>("path")
+        if (path.isNullOrEmpty()) {
+            result.error("INVALID_ARGUMENT", "path is required", null)
+            return
+        }
+        val src = File(path)
+        if (!src.isFile) {
+            result.error("FILE_NOT_FOUND", "源文件不存在: $path", null)
+            return
+        }
+        val rawName = call.argument<String>("fileName") ?: src.name
+        val sanitized = sanitizeFileName(rawName)
+        val fileName = if (sanitized.endsWith(".mp4", ignoreCase = true)) {
+            sanitized
+        } else {
+            "$sanitized.mp4"
+        }
+        Thread {
+            try {
+                val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    saveVideoViaMediaStore(src, fileName)
+                } else {
+                    saveVideoViaPublicDir(src, fileName)
+                }
+                android.util.Log.i("ImageSaver", "savedVideo=$saved fileName=$fileName")
+                mainHandler.post { result.success(saved) }
+            } catch (e: SecurityException) {
+                android.util.Log.e("ImageSaver", "PERMISSION_DENIED", e)
+                mainHandler.post {
+                    result.error("PERMISSION_DENIED", "缺少存储写入权限", null)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ImageSaver", "SAVE_VIDEO_FAILED", e)
+                mainHandler.post {
+                    result.error(
+                        "SAVE_VIDEO_FAILED",
+                        "${e.javaClass.simpleName}: ${e.message}",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    /** API 29+：MediaStore 视频分区存储，写入 Movies/MD3Music 目录。 */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun saveVideoViaMediaStore(src: File, fileName: String): String {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(
+                MediaStore.Video.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_MOVIES + "/" + ALBUM_NAME,
+            )
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("MediaStore Video insert 返回 null")
+        try {
+            val out = resolver.openOutputStream(uri)
+                ?: throw IllegalStateException("openOutputStream 返回 null")
+            out.use { output -> FileInputStream(src).use { it.copyTo(output) } }
+        } catch (e: Exception) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw e
+        }
+        values.clear()
+        values.put(MediaStore.Video.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri.toString()
+    }
+
+    /** API < 29：公共 Movies 目录。 */
+    private fun saveVideoViaPublicDir(src: File, fileName: String): String {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) throw SecurityException("WRITE_EXTERNAL_STORAGE 未授予")
+
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+            ALBUM_NAME,
         )
         if (!dir.isDirectory && !dir.mkdirs()) {
             throw IllegalStateException("创建目录失败: $dir")

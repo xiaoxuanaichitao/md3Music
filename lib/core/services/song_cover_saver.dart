@@ -6,15 +6,18 @@ import 'package:provider/provider.dart';
 
 import '../../data/models/song.dart';
 import '../../providers/song_match_provider.dart';
+import '../../services/kugou_api/kugou_api_client.dart';
+import '../../widgets/dynamic_cover_view.dart';
 import '../../widgets/smart_artwork_image.dart';
 import '../utils/app_toast.dart';
+import 'dynamic_cover_service.dart';
 import 'image_gallery_saver.dart';
 import 'local_artwork_cache.dart';
 
-/// 歌曲封面保存与预览服务。
+/// 歌曲封面（静态封面 + 动态封面）保存与预览服务。
 ///
-/// 支持在线歌曲（自动尝试最高分辨率 1000px）、本地歌曲（从 ID3 标签读取内嵌封面）
-/// 以及已匹配在线信息的本地歌曲保存至系统相册。
+/// 支持在线歌曲（自动尝试最高分辨率 1000px）、动态封面（MP4 视频）、
+/// 本地歌曲（从 ID3 标签读取内嵌封面）以及已匹配在线信息的本地歌曲保存至系统相册。
 class SongCoverSaver {
   const SongCoverSaver._();
 
@@ -39,7 +42,48 @@ class SongCoverSaver {
     return 'MD3Music_${name}_$salt.$extension';
   }
 
-  /// 保存歌曲封面并给出 Toast 反馈。
+  /// 解析歌曲对应的 albumAudioId（优先自身字段，其次匹配缓存，最后在线查询详情）。
+  static Future<String?> resolveAlbumAudioId(
+    BuildContext? context,
+    Song song,
+  ) async {
+    if (song.albumAudioId != null && song.albumAudioId!.trim().isNotEmpty) {
+      return song.albumAudioId!.trim();
+    }
+    if (context != null) {
+      try {
+        final matchProvider =
+            Provider.of<SongMatchProvider>(context, listen: false);
+        final matched = matchProvider.matchedSongFor(song);
+        if (matched?.albumAudioId != null &&
+            matched!.albumAudioId!.trim().isNotEmpty) {
+          return matched.albumAudioId!.trim();
+        }
+      } catch (_) {}
+    }
+    if (song.isOnline && song.id.trim().isNotEmpty) {
+      try {
+        final detail = await KugouApiClient().getSongDetail(song.id.trim());
+        final resolved = detail?.albumAudioId ?? detail?.albumAudioId2;
+        if (resolved != null && resolved.trim().isNotEmpty) {
+          return resolved.trim();
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /// 检测歌曲是否存在可保存的动态封面。
+  static Future<bool> hasDynamicCover(
+    BuildContext? context,
+    Song song,
+  ) async {
+    final albumAudioId = await resolveAlbumAudioId(context, song);
+    if (albumAudioId == null || albumAudioId.isEmpty) return false;
+    return DynamicCoverService.instance.hasDynamicCover(albumAudioId);
+  }
+
+  /// 保存歌曲静态封面并给出 Toast 反馈。
   static Future<bool> saveCoverWithFeedback(
     BuildContext context,
     Song song,
@@ -68,7 +112,36 @@ class SongCoverSaver {
     }
   }
 
-  /// 提取封面字节并落盘至相册。
+  /// 保存歌曲动态封面（MP4 视频）并给出 Toast 反馈。
+  static Future<bool> saveDynamicCoverWithFeedback(
+    BuildContext context,
+    Song song,
+  ) async {
+    showToast('正在检测并获取动态封面…');
+    try {
+      final success = await saveDynamicCover(context, song);
+      if (success) {
+        if (defaultTargetPlatform == TargetPlatform.windows) {
+          showToast('动态封面已保存到相册 (Pictures/MD3Music)');
+        } else {
+          showToast('动态封面已保存到系统相册 (Movies/MD3Music)');
+        }
+        return true;
+      } else {
+        showToast('该歌曲暂无动态封面可保存');
+        return false;
+      }
+    } on ImageSaveException catch (e) {
+      showToast('保存动态封面失败：${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('[SongCoverSaver] 保存动态封面失败: $e');
+      showToast('保存动态封面失败');
+      return false;
+    }
+  }
+
+  /// 提取静态封面字节并落盘至相册。
   static Future<bool> saveSongCover(BuildContext context, Song song) async {
     // 1. 本地歌曲：提取本地音频文件内嵌封面
     Uint8List? localBytes;
@@ -126,6 +199,54 @@ class SongCoverSaver {
 
     final fileName = generateCoverFileName(song);
     await ImageGallerySaver.saveBytesToGallery(bytes, fileName: fileName);
+    return true;
+  }
+
+  /// 下载并保存歌曲动态封面（MP4 视频）至系统相册。
+  static Future<bool> saveDynamicCover(BuildContext context, Song song) async {
+    final albumAudioId = await resolveAlbumAudioId(context, song);
+    if (albumAudioId == null || albumAudioId.isEmpty) {
+      return false;
+    }
+
+    final dyCover = await KugouApiClient().getAlbumDyCover(
+      albumAudioId,
+      albumId: song.albumId,
+    );
+    if (dyCover == null || !dyCover.hasVideo) {
+      return false;
+    }
+
+    final candidateUrls = <String>[
+      DynamicCoverService.instance.streamUrlFor(albumAudioId),
+      if (dyCover.h264Url != null && dyCover.h264Url!.isNotEmpty)
+        dyCover.h264Url!,
+    ];
+
+    Uint8List? videoBytes;
+    for (final url in candidateUrls) {
+      try {
+        final uri = Uri.parse(url);
+        final response =
+            await http.get(uri).timeout(const Duration(seconds: 45));
+        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+          videoBytes = response.bodyBytes;
+          break;
+        }
+      } catch (e) {
+        debugPrint('[SongCoverSaver] 下载动态封面候选地址失败 ($url): $e');
+      }
+    }
+
+    if (videoBytes == null || videoBytes.isEmpty) {
+      throw const ImageSaveException('下载动态封面视频失败');
+    }
+
+    final fileName = generateCoverFileName(song, extension: 'mp4');
+    await ImageGallerySaver.saveVideoBytesToGallery(
+      videoBytes,
+      fileName: fileName,
+    );
     return true;
   }
 
@@ -202,15 +323,40 @@ class SongCoverPreviewDialog extends StatefulWidget {
 }
 
 class _SongCoverPreviewDialogState extends State<SongCoverPreviewDialog> {
-  bool _saving = false;
+  bool _savingStatic = false;
+  bool _savingDynamic = false;
+  bool _hasDynamicCover = false;
 
-  Future<void> _handleSave() async {
-    if (_saving) return;
-    setState(() => _saving = true);
+  @override
+  void initState() {
+    super.initState();
+    _probeDynamicCover();
+  }
+
+  Future<void> _probeDynamicCover() async {
+    final hasDy = await SongCoverSaver.hasDynamicCover(null, widget.song);
+    if (mounted && hasDy != _hasDynamicCover) {
+      setState(() => _hasDynamicCover = hasDy);
+    }
+  }
+
+  Future<void> _handleSaveStatic() async {
+    if (_savingStatic || _savingDynamic) return;
+    setState(() => _savingStatic = true);
     try {
       await SongCoverSaver.saveCoverWithFeedback(context, widget.song);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _savingStatic = false);
+    }
+  }
+
+  Future<void> _handleSaveDynamic() async {
+    if (_savingStatic || _savingDynamic) return;
+    setState(() => _savingDynamic = true);
+    try {
+      await SongCoverSaver.saveDynamicCoverWithFeedback(context, widget.song);
+    } finally {
+      if (mounted) setState(() => _savingDynamic = false);
     }
   }
 
@@ -219,6 +365,7 @@ class _SongCoverPreviewDialogState extends State<SongCoverPreviewDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
+    final busy = _savingStatic || _savingDynamic;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
@@ -249,7 +396,7 @@ class _SongCoverPreviewDialogState extends State<SongCoverPreviewDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              // 封面图（圆角 + 柔和阴影）
+              // 封面图（圆角 + 柔和阴影 + 动态封面叠加预览）
               Container(
                 width: 260,
                 height: 260,
@@ -265,12 +412,22 @@ class _SongCoverPreviewDialogState extends State<SongCoverPreviewDialog> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: SmartArtworkImage(
-                    artworkUri: widget.song.artworkUri,
-                    fallbackFilePath: widget.song.localPath,
-                    songId: widget.song.id,
-                    size: 260,
-                    borderRadius: 20,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      SmartArtworkImage(
+                        artworkUri: widget.song.artworkUri,
+                        fallbackFilePath: widget.song.localPath,
+                        songId: widget.song.id,
+                        size: 260,
+                        borderRadius: 20,
+                      ),
+                      if (_hasDynamicCover)
+                        DynamicCoverView(
+                          song: widget.song,
+                          enabled: true,
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -294,21 +451,40 @@ class _SongCoverPreviewDialogState extends State<SongCoverPreviewDialog> {
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _saving ? null : _handleSave,
-                  icon: _saving
+                  onPressed: busy ? null : _handleSaveStatic,
+                  icon: _savingStatic
                       ? const SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.download_rounded),
-                  label: Text(_saving ? '正在保存…' : '保存封面到相册'),
+                      : const Icon(Icons.image_outlined),
+                  label: Text(_savingStatic ? '正在保存静态封面…' : '保存静态封面到相册'),
                 ),
               ),
+              if (_hasDynamicCover) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: busy ? null : _handleSaveDynamic,
+                    icon: _savingDynamic
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.motion_photos_on_outlined),
+                    label: Text(
+                      _savingDynamic ? '正在保存动态封面…' : '保存动态封面到相册 (MP4)',
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

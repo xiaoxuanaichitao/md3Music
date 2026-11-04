@@ -4624,6 +4624,17 @@ class _FullPlayerState extends State<FullPlayer>
                     SongCoverSaver.saveCoverWithFeedback(rootContext, song);
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.motion_photos_on_outlined),
+                  title: const Text('保存动态封面'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    SongCoverSaver.saveDynamicCoverWithFeedback(
+                      rootContext,
+                      song,
+                    );
+                  },
+                ),
                 // 播放速度：低频动作，不占底部常驻位置
                 ListTile(
                   leading: const Icon(Icons.speed),

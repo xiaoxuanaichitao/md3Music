@@ -57,5 +57,19 @@ void main() {
       final fileName2 = SongCoverSaver.generateCoverFileName(song2);
       expect(fileName2, startsWith('MD3Music_测试歌曲_'));
     });
+
+    test('支持生成动态封面 mp4 扩展名文件名', () {
+      final song = Song(
+        id: '5',
+        title: '花海',
+        artist: '周杰伦',
+        album: '魔杰座',
+        duration: Duration.zero,
+      );
+      final fileName =
+          SongCoverSaver.generateCoverFileName(song, extension: 'mp4');
+      expect(fileName, startsWith('MD3Music_花海_周杰伦_'));
+      expect(fileName, endsWith('.mp4'));
+    });
   });
 }
